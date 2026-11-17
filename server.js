@@ -1,3 +1,10 @@
+// Any argument means "control a running server from the terminal" instead of
+// starting one. Checked first so a CLI call never loads server state.
+if (process.argv.length > 2) {
+  require('./src/cli').runCli(process.argv.slice(2));
+  return;
+}
+
 const http = require('http');
 const fs = require('fs');
 const os = require('os');

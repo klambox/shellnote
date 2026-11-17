@@ -144,6 +144,21 @@ Shows every execution across **all** notes — running and recently finished (la
 
 Every row carries a **Comment** — your own note on that run ("prod deploy", "flaky, retried"). Double-click the cell or the pencil that appears on hover to edit it, Enter to save, Esc to cancel; long text truncates in the table and shows in full on hover. Comments are stored with the run and survive a restart.
 
+### Terminal control
+
+With the server running, the same notes and processes can be driven from another terminal (`npx klambox shellnote ...` or `node server.js ...`). Blocks started this way appear in the Processes tab, and the other way round.
+
+```bash
+shellnote --list note                 # notes (* = starred)
+shellnote <note-name>                 # show a note, blocks numbered from 0
+shellnote --run <note-name> <block>   # run a block and stream its output (--detach: print the id and return)
+shellnote --list process              # runs, running first
+shellnote --watch <process-id>        # follow a run; Ctrl+C stops watching, not the process
+shellnote --kill <process-id>         # kill a running process
+```
+
+`<note-name>` is the file name (with or without `.md`) or a unique part of it; `<process-id>` may be a unique prefix. `--run` and `--watch` exit with the process's own exit code. Use `--port <n>` if the server is not on 4488. The run folder is the server's current run folder (Settings); `cd` lines in earlier blocks are not replayed.
+
 ### Where blocks run
 
 - By default, blocks run in the folder the server was started from. Change it in **Settings → Run folder** (persisted).
