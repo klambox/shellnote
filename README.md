@@ -157,9 +157,10 @@ shellnote --run <note-name> <block>   # run a block and stream its output (--det
 shellnote --list process              # runs, running first
 shellnote --watch <process-id>        # follow a run; Ctrl+C stops watching, not the process
 shellnote --kill <process-id>         # kill a running process
+shellnote --restart <process-id>      # kill it if running, run the same block again, watch the new run
 ```
 
-`<note-name>` is the file name (with or without `.md`) or a unique part of it; `<process-id>` may be a unique prefix. `--run` and `--watch` exit with the process's own exit code. Use `--port <n>` if the server is not on 4488. The run folder is the server's current run folder (Settings); `cd` lines in earlier blocks are not replayed.
+`<note-name>` is the file name (with or without `.md`) or a unique part of it; `<process-id>` may be a unique prefix. `--restart` runs the note's current block code (not a copy of the old run) and refuses if the block no longer exists, before killing anything. `--run`, `--watch` and `--restart` exit with the process's own exit code. Use `--port <n>` if the server is not on 4488. The run folder is the server's current run folder (Settings); `cd` lines in earlier blocks are not replayed.
 
 ### Where blocks run
 
