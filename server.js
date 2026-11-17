@@ -464,6 +464,20 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Closing the server (Ctrl+C, kill, closing the terminal) stops the blocks it
+// started. They run in their own process groups, so without this they would
+// outlive it as invisible orphans still holding their ports. A hard kill (-9)
+// cannot be caught; the next start adopts those runs instead (see executor).
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const count = executor.killAll();
+  if (count) console.log(`stopped ${count} running process${count === 1 ? '' : 'es'}`);
+  setTimeout(() => process.exit(0), 300); // let the kill signals go out
+}
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, shutdown);
+
 server.listen(PORT, HOST, () => {
   console.log(`shellnote running at http://${HOST}:${PORT}`);
 });

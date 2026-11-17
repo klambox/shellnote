@@ -115,6 +115,100 @@ function loadPersistedHistory() {
 
 loadPersistedHistory();
 
+// ---- surviving a server restart ----
+// Blocks run in their own process group (detached), so they outlive a server
+// that is killed or crashes — but the run list lives in memory, so the next
+// server would not know they exist, and a port-holding block (a dev server)
+// would block its own re-run with no way to stop it from shellnote. Running
+// runs are therefore also written to disk; on startup the ones still alive are
+// adopted (listed, killable — their output is not recoverable) and the dead
+// ones are closed out in history.
+function runningIndexPath() {
+  return path.join(logsDir(), 'running.json');
+}
+
+function persistRunning() {
+  const running = [...executions.values()]
+    .filter((r) => r.status === 'running' && r.pid)
+    .map(({ execId, pid, startedAt, noteFile, noteTitle, blockIndex, notesFolder, shell, note }) => ({ execId, pid, startedAt, noteFile, noteTitle, blockIndex, notesFolder, shell, note }));
+  try {
+    fs.mkdirSync(logsDir(), { recursive: true });
+    fs.writeFileSync(runningIndexPath(), JSON.stringify(running), 'utf8');
+  } catch {
+    // Best-effort, like the history index.
+  }
+}
+
+// A pid alone is not proof: after a reboot or a long gap it may belong to an
+// unrelated process, and the Kill button would then hit it. Compare the
+// process's own start time with the run's; if that cannot be read, do not adopt.
+function isSameProcess(pid, startedAt) {
+  try {
+    process.kill(pid, 0);
+  } catch (err) {
+    if (err.code !== 'EPERM') return false; // ESRCH: gone
+  }
+  if (process.platform === 'win32') return true; // no cheap start-time probe; liveness only
+  try {
+    const out = require('child_process').execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
+    const started = Date.parse(out.trim());
+    return Number.isFinite(started) && Math.abs(started - startedAt) < 60_000;
+  } catch {
+    return false;
+  }
+}
+
+function adoptOrphans() {
+  let saved;
+  try {
+    saved = JSON.parse(fs.readFileSync(runningIndexPath(), 'utf8'));
+  } catch {
+    return;
+  }
+  const orphans = [];
+  for (const entry of saved) {
+    if (executions.has(entry.execId)) continue;
+    const alive = isSameProcess(entry.pid, entry.startedAt);
+    const record = {
+      ...entry,
+      note: entry.note || '',
+      status: 'running',
+      finishedAt: null,
+      exitCode: null,
+      output: [],
+      outputChars: 0,
+      listeners: new Set(),
+      child: null,
+      usesPty: false,
+      adopted: true,
+    };
+    executions.set(record.execId, record);
+    if (alive) {
+      appendOutput(record, '[shellnote was restarted while this was running: it is still running, but its output before the restart is not available]\n');
+      orphans.push(record);
+    } else {
+      appendOutput(record, '[shellnote stopped while this was running; how it ended is unknown]\n');
+      finish(record, 'failed', null);
+    }
+  }
+  persistRunning();
+  if (!orphans.length) return;
+  // No child handle to listen on, so notice the exit by polling.
+  const timer = setInterval(() => {
+    for (const record of orphans) {
+      if (record.status !== 'running') continue;
+      if (!isSameProcess(record.pid, record.startedAt)) {
+        appendOutput(record, '[process ended; exit status unknown]\n');
+        finish(record, 'failed', null);
+      }
+    }
+    if (orphans.every((r) => r.status !== 'running')) clearInterval(timer);
+  }, 2000);
+  timer.unref();
+}
+
+adoptOrphans();
+
 function createExecution({ shellPath, args, cwd, noteFile, noteTitle, blockIndex, shellTag, verbatim, notesFolder }) {
   const execId = crypto.randomUUID();
 
@@ -161,6 +255,7 @@ function createExecution({ shellPath, args, cwd, noteFile, noteTitle, blockIndex
       record.child = term;
       record.usesPty = true;
       term.onData((data) => appendOutput(record, stripAnsi(data)));
+      persistRunning();
       term.onExit(({ exitCode }) => {
         if (record.status === 'killed') return;
         finish(record, exitCode === 0 ? 'success' : 'failed', exitCode);
@@ -181,6 +276,7 @@ function createExecution({ shellPath, args, cwd, noteFile, noteTitle, blockIndex
   });
   record.pid = child.pid;
   record.child = child;
+  persistRunning();
 
   child.stdout.on('data', (chunk) => appendOutput(record, chunk.toString()));
   child.stderr.on('data', (chunk) => appendOutput(record, chunk.toString()));
@@ -247,6 +343,7 @@ function finish(record, status, exitCode) {
   trackHistory(record.execId);
   persistOutput(record);
   persistHistoryIndex();
+  persistRunning();
   for (const listener of record.listeners) listener(null);
 }
 
@@ -281,7 +378,8 @@ function kill(execId) {
     try {
       process.kill(-record.pid, 'SIGTERM');
     } catch {
-      record.child.kill('SIGTERM');
+      // An adopted run has no child handle; fall back to the bare pid.
+      try { (record.child || { kill: () => process.kill(record.pid, 'SIGTERM') }).kill('SIGTERM'); } catch { /* already gone */ }
     }
   }
 
@@ -290,6 +388,7 @@ function kill(execId) {
   trackHistory(record.execId);
   persistOutput(record);
   persistHistoryIndex();
+  persistRunning();
   for (const listener of record.listeners) listener(null);
   return true;
 }

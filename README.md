@@ -144,6 +144,8 @@ Shows every execution across **all** notes — running and recently finished (la
 
 Every row carries a **Comment** — your own note on that run ("prod deploy", "flaky, retried"). Double-click the cell or the pencil that appears on hover to edit it, Enter to save, Esc to cancel; long text truncates in the table and shows in full on hover. Comments are stored with the run and survive a restart.
 
+**Stopping shellnote.** Ctrl+C (or kill / closing the terminal) stops every running block before the server exits, so nothing is left running unseen on its port. If the server dies without a chance to do that (`kill -9`, a crash), the next start lists those blocks again as running, so they can be killed from the UI; their earlier output is not recoverable, and the entry is marked accordingly.
+
 ### Terminal control
 
 With the server running, the same notes and processes can be driven from another terminal (`npx klambox shellnote ...` or `node server.js ...`). Blocks started this way appear in the Processes tab, and the other way round.
